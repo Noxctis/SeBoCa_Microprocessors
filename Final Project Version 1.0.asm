@@ -134,6 +134,8 @@ DATA SEGMENT
     DUE_LINE         DB 'Due:0000             ','$'
     DEC_DIVISORS     DW 1000,100,10,1
 
+    ONE_SECOND_MS EQU 100    ; Adjust this: approximate 1 real second (was 1000)
+
 DATA ENDS
 
 STK SEGMENT
@@ -358,25 +360,27 @@ UPDATE_PIN_DISPLAY PROC
     PUSH CX
     PUSH SI
     PUSH DI
+    ; Clear the visible PIN area to underscores
     LEA DI, PIN_INPUT_LINE + 5
     MOV CX, MIN_CODE_LEN
     MOV AL, '_'
     REP STOSB
+
+    ; Overwrite the first PIN_LENGTH positions with '*'
     XOR BX, BX
     MOV BL, PIN_LENGTH
     MOV CX, BX
     JCXZ PIN_DISPLAY_WRITE
-    LEA SI, PIN_BUFFER
     LEA DI, PIN_INPUT_LINE + 5
-PIN_DISPLAY_LOOP:
-    LODSB
-    ADD AL, '0'
-    STOSB
-    LOOP PIN_DISPLAY_LOOP
+    MOV AL, '*'
+    REP STOSB
+
 PIN_DISPLAY_WRITE:
+    ; Push masked buffer to LCD
     MOV AL, LCD_LINE2
     LEA SI, PIN_INPUT_LINE
     CALL PRINT_AT
+
     POP DI
     POP SI
     POP CX
@@ -446,7 +450,7 @@ UPDATE_TIMER_METRICS PROC
     PUSH CX
     PUSH DX
     PUSH SI
-    MOV CX, 1000
+    MOV CX, ONE_SECOND_MS    ; Previously 1000 -> too slow
     CALL DELAY_MS
     INC SECONDS_COUNTER
     CALL APPLY_MINUTE_RATES
@@ -909,7 +913,7 @@ INIT_LCD ENDP
 
 DELAY_1MS PROC
     PUSH BX
-    MOV BX, 02CAH
+    MOV BX, 0100H            ; Reduced inner loop to speed up (was 02CAH)
 L1:
     DEC BX
     NOP
