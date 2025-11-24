@@ -134,7 +134,7 @@ DATA SEGMENT
     DUE_LINE         DB 'Due:0000             ','$'
     DEC_DIVISORS     DW 1000,100,10,1
 
-    ONE_SECOND_MS EQU 100    ; Adjust this: approximate 1 real second (was 1000)
+    ONE_SECOND_MS EQU 100    ; Adjust for count up tinming (closest to irl)
 
 DATA ENDS
 
