@@ -8,7 +8,7 @@
 ; Before starting simulation set Internal Memory Size 
 ; in the 8086 model properties to 0x10000
 ;====================================================================
-
+;ang sarap mo pia
 DATA SEGMENT
     PORTA       EQU 0F0H   ; LCD data bus
     PORTB       EQU 0F2H   ; LCD control lines
