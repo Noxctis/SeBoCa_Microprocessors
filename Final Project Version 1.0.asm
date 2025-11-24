@@ -358,25 +358,27 @@ UPDATE_PIN_DISPLAY PROC
     PUSH CX
     PUSH SI
     PUSH DI
+    ; Clear the visible PIN area to underscores
     LEA DI, PIN_INPUT_LINE + 5
     MOV CX, MIN_CODE_LEN
     MOV AL, '_'
     REP STOSB
+
+    ; Overwrite the first PIN_LENGTH positions with '*'
     XOR BX, BX
     MOV BL, PIN_LENGTH
     MOV CX, BX
     JCXZ PIN_DISPLAY_WRITE
-    LEA SI, PIN_BUFFER
     LEA DI, PIN_INPUT_LINE + 5
-PIN_DISPLAY_LOOP:
-    LODSB
-    ADD AL, '0'
-    STOSB
-    LOOP PIN_DISPLAY_LOOP
+    MOV AL, '*'
+    REP STOSB
+
 PIN_DISPLAY_WRITE:
+    ; Push masked buffer to LCD
     MOV AL, LCD_LINE2
     LEA SI, PIN_INPUT_LINE
     CALL PRINT_AT
+
     POP DI
     POP SI
     POP CX
