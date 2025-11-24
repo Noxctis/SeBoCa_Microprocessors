@@ -20,11 +20,12 @@ DATA SEGMENT
     PORTC_2       EQU 0C4H   ; 
     COM_REG_2     EQU 0C6H   ; 8255 command register
 
-    PIC1 EQU 0E8H
-	PIC2 EQU 0EAH
-	ICW1 EQU 13H
-	ICW2 EQU 80H
-	ICW4 EQU 03H
+    PIC1        EQU 0E8H ; 8259 command port (A1 = 0)
+    PIC2        EQU 0EAH ; 8259 data port (A1 = 1)
+    ICW1        EQU 013H ; edge triggered, ICW4 required
+    ICW2        EQU 080H ; vector base 80H
+    ICW4        EQU 003H ; AEOI enabled, 8086 mode
+    OCW1_MASK   EQU 11100000B ; enable IR0-IR4, mask others
 
     PIT_CH0  EQU 0F8H ; 8253 Channel 0
     PIT_CTRL EQU 0FEH ; 8253 Control Word Register
@@ -446,7 +447,7 @@ UPDATE_TIMER_METRICS PROC
     PUSH CX
     PUSH DX
     PUSH SI
-    MOV CX, 1000
+    MOV CX, 10
     CALL DELAY_MS
     INC SECONDS_COUNTER
     CALL APPLY_MINUTE_RATES
