@@ -8,7 +8,7 @@
 ; Before starting simulation set Internal Memory Size 
 ; in the 8086 model properties to 0x10000
 ;====================================================================
-;ang sarap mo pia
+
 DATA SEGMENT
     PORTA       EQU 0F0H   ; LCD data bus
     PORTB       EQU 0F2H   ; LCD control lines
@@ -20,11 +20,12 @@ DATA SEGMENT
     PORTC_2       EQU 0C4H   ; 
     COM_REG_2     EQU 0C6H   ; 8255 command register
 
-    PIC1 EQU 0E8H
-	PIC2 EQU 0EAH
-	ICW1 EQU 13H
-	ICW2 EQU 80H
-	ICW4 EQU 03H
+    PIC1        EQU 0E8H ; 8259 command port (A1 = 0)
+    PIC2        EQU 0EAH ; 8259 data port (A1 = 1)
+    ICW1        EQU 013H ; edge triggered, ICW4 required
+    ICW2        EQU 080H ; vector base 80H
+    ICW4        EQU 003H ; AEOI enabled, 8086 mode
+    OCW1_MASK   EQU 11100000B ; enable IR0-IR4, mask others
 
     PIT_CH0  EQU 0F8H ; 8253 Channel 0
     PIT_CTRL EQU 0FEH ; 8253 Control Word Register
@@ -47,8 +48,10 @@ DATA SEGMENT
 
     POWER_ON_HOLD_TICKS  EQU 30   ; adjust to match actual 3 s 
     POWER_OFF_HOLD_TICKS EQU 50   ; adjust to match actual 5 s 
-    MESSAGE_PAUSE_MS     EQU 15   ; generic pause after messages (approx ms)
+    MESSAGE_PAUSE_MS     EQU 1500   ; generic pause after messages (approx ms)
     FLASH_HALF_MS        EQU 50    ; blink half-period (approx ms)
+    DISARM_IDLE_TIMEOUT_MS  EQU 4000 ; inactivity limit (ms) for disarm prompt
+    PAYMENT_IDLE_TIMEOUT_MS EQU 4000 ; inactivity limit (ms) for payment prompt
 
     ; Mapping tables for keypad conversions
     KEY_NUM_TABLE   DB 1,2,3,0FFH,4,5,6,0FFH,7,8,9,0FFH,0FFH,0,0FFH,0FFH
@@ -110,18 +113,22 @@ DATA SEGMENT
     SERVO_LOCK_MASK EQU 00000001B
     SERVO_UNLOCK_MASK EQU 00000000B
     PIT_CTRL_WORD EQU 00110100B
-    PIT_COUNT_VALUE EQU 0FFFFH
+    PIT_COUNT_VALUE EQU 01H   ; Lower value = faster timer ticks for testing
 
     PIN_PROMPT_LINE  DB 'Enter 4-digit PIN     ','$'
-    PIN_INPUT_LINE   DB 'PIN: ____             ','$'
-    DISARM_PROMPT    DB 'Re-enter PIN to unlock','$'
+    PIN_INPUT_LINE   DB 'PIN: ____           ','$'
+    DISARM_PROMPT    DB 'Enter PIN to unlock','$'
     LOCK_LINE        DB 'Locker Secured        ','$'
     EXIT_PROMPT      DB 'Press * to finish     ','$'
-    TIME_LINE        DB 'Time: 00:00           ','$'
+    TIME_LINE        DB 'Time: 00:00:00        ','$'
     PAY_HEADER       DB 'Payment Mode          ','$'
     PAY_LINE         DB 'Cost:0000 Paid:0000   ','$'
     UNLOCK_LINE1     DB 'Payment complete!     ','$'
     UNLOCK_LINE2     DB 'Locker Unlocked       ','$'
+    CHANGE_PROMPT    DB 'Your change is:       ','$'
+    CHANGE_LINE      DB 'Change:0000           ','$'
+    DISPENSING_MSG    DB 'Dispensing change...  ','$'
+    PRESS_HASH_PROMPT DB 'Press # to continue   ','$'
 
     PIN_BUFFER       DB 4 DUP (0)
     PIN_LENGTH       DB 0
@@ -130,92 +137,121 @@ DATA SEGMENT
     PAID_TOTAL       DW 0
     PIC_MASK         DB 0FFH
     LAST_MINUTE      DW 0
+    LAST_PAYMENT_TOTAL DW 0
     COIN_PROMPT      DB 'Insert coins to pay   ','$'
-    DUE_LINE         DB 'Due:0000             ','$'
+    DUE_LINE         DB 'Due:0000           ','$'
     DEC_DIVISORS     DW 1000,100,10,1
-
-    ONE_SECOND_MS EQU 100    ; Adjust for count up tinming (closest to irl)
 
 DATA ENDS
 
 STK SEGMENT
-	 BOS DW 64d DUP (?)
+	 BOS DW 80d DUP (?)
 	 TOS LABEL WORD
 STK ENDS
 
 PROCED1 SEGMENT 'CODE'
 ASSUME CS:PROCED1, DS:DATA
-ORG 1000h
-
-ISR_TIMER PROC FAR
+ISR1 PROC FAR
+    PUSHF
     PUSH AX
     PUSH DX
+    PUSH DS
+    MOV AX, DATA
+    MOV DS, AX
     INC SECONDS_COUNTER
-    MOV DX, PIC1
-    MOV AL, 20H
-    OUT DX, AL
+    POP DS
     POP DX
     POP AX
+    POPF
     IRET
-ISR_TIMER ENDP
-
-ISR_COIN1 PROC FAR
-    PUSH AX
-    PUSH DX
-    INC PAID_TOTAL
-    MOV DX, PIC1
-    MOV AL, 20H
-    OUT DX, AL
-    POP DX
-    POP AX
-    IRET
-ISR_COIN1 ENDP
-
-ISR_COIN5 PROC FAR
-    PUSH AX
-    PUSH DX
-    ADD PAID_TOTAL, 5
-    MOV DX, PIC1
-    MOV AL, 20H
-    OUT DX, AL
-    POP DX
-    POP AX
-    IRET
-ISR_COIN5 ENDP
-
-ISR_COIN10 PROC FAR
-    PUSH AX
-    PUSH DX
-    ADD PAID_TOTAL, 10
-    MOV DX, PIC1
-    MOV AL, 20H
-    OUT DX, AL
-    POP DX
-    POP AX
-    IRET
-ISR_COIN10 ENDP
-
-ISR_COIN20 PROC FAR
-    PUSH AX
-    PUSH DX
-    ADD PAID_TOTAL, 20
-    MOV DX, PIC1
-    MOV AL, 20H
-    OUT DX, AL
-    POP DX
-    POP AX
-    IRET
-ISR_COIN20 ENDP
-
+ISR1 ENDP
 PROCED1 ENDS
+
+PROCED2 SEGMENT 'CODE'
+ASSUME CS:PROCED2, DS:DATA
+ISR2 PROC FAR
+    PUSHF
+    PUSH AX
+    PUSH DX
+    PUSH DS
+    MOV AX, DATA
+    MOV DS, AX
+    INC PAID_TOTAL
+    POP DS
+    POP DX
+    POP AX
+    POPF
+    IRET
+ISR2 ENDP
+PROCED2 ENDS
+
+PROCED3 SEGMENT 'CODE'
+ASSUME CS:PROCED3, DS:DATA
+ISR3 PROC FAR
+    PUSHF
+    PUSH AX
+    PUSH DX
+    PUSH DS
+    MOV AX, DATA
+    MOV DS, AX
+    ADD PAID_TOTAL, 5
+    POP DS
+    POP DX
+    POP AX
+    POPF
+    IRET
+ISR3 ENDP
+PROCED3 ENDS
+
+PROCED4 SEGMENT 'CODE'
+ASSUME CS:PROCED4, DS:DATA
+ISR4 PROC FAR
+    PUSHF
+    PUSH AX
+    PUSH DX
+    PUSH DS
+    MOV AX, DATA
+    MOV DS, AX
+    ADD PAID_TOTAL, 10
+    POP DS
+    POP DX
+    POP AX
+    POPF
+    IRET
+ISR4 ENDP
+PROCED4 ENDS
+
+PROCED5 SEGMENT 'CODE'
+ASSUME CS:PROCED5, DS:DATA
+ISR5 PROC FAR
+    PUSHF
+    PUSH AX
+    PUSH DX
+    PUSH DS
+    MOV AX, DATA
+    MOV DS, AX
+    ADD PAID_TOTAL, 20
+    POP DS
+    POP DX
+    POP AX
+    POPF
+    IRET
+ISR5 ENDP
+PROCED5 ENDS
 
 CODE SEGMENT PUBLIC 'CODE'
     ASSUME CS:CODE, DS:DATA, SS:STK
-    ORG 08000H
 
 START:
     MOV AX, DATA
     MOV DS, AX
+    MOV AX, STK
+    MOV SS, AX
+    LEA SP, TOS
+    CLI
+   
+    XOR AX, AX
+    MOV ES, AX
 
     ; Initialize 8255 for LCD/keypad: Mode 0, A out, B out, C in
     MOV DX, COM_REG
@@ -226,6 +262,37 @@ START:
     MOV DX, COM_REG_2
     MOV AL, 080H
     OUT DX, AL
+
+    CALL INIT_PIC
+    
+     MOV AX, OFFSET ISR1
+     MOV [ES:200H], AX
+     MOV AX, SEG ISR1
+     MOV [ES:202H], AX
+
+     MOV AX, OFFSET ISR2
+     MOV [ES:204H], AX
+     MOV AX, SEG ISR2
+     MOV [ES:206H], AX
+	 
+     MOV AX, OFFSET ISR3
+     MOV [ES:208H], AX
+     MOV AX, SEG ISR3
+     MOV [ES:20AH], AX
+	 
+     MOV AX, OFFSET ISR4
+     MOV [ES:20CH], AX
+     MOV AX, SEG ISR4
+     MOV [ES:20EH], AX
+	 
+     MOV AX, OFFSET ISR5
+     MOV [ES:210H], AX
+     MOV AX, SEG ISR5
+     MOV [ES:212H], AX
+    
+    CALL INIT_PIT
+
+    STI
 
     CALL LCD_TURN_ON
     MOV LCD_ACTIVE, 1
@@ -292,13 +359,19 @@ DISARM_PROMPT_LOOP:
     MOV AL, LCD_LINE3
     LEA SI, PROMPT_ENTER_CODE2
     CALL PRINT_AT
-    CALL PIN_INPUT_LOOP
+    CALL PIN_INPUT_LOOP_TIMEOUT
+    CMP AL, 0
+    JE DISARM_TIMEOUT
     CALL VERIFY_PIN_BUFFER
     CMP AL, 1
     JE DISARM_READY
     CALL DISPLAY_BAD_CODE
     JMP DISARM_PROMPT_LOOP
 DISARM_READY:
+    MOV AL, 1
+    RET
+DISARM_TIMEOUT:
+    XOR AL, AL
     RET
 PROMPT_FOR_DISARM_CODE ENDP
 
@@ -341,6 +414,51 @@ PIN_CONFIRM:
     RET
 PIN_INPUT_LOOP ENDP
 
+PIN_INPUT_LOOP_TIMEOUT PROC
+    CALL UPDATE_PIN_DISPLAY
+PIN_TIMEOUT_WAIT:
+    MOV CX, DISARM_IDLE_TIMEOUT_MS
+    CALL WAIT_FOR_KEY_TIMEOUT
+    JC PIN_TIMEOUT_KEY_READY
+    XOR AL, AL
+    RET
+PIN_TIMEOUT_KEY_READY:
+    CMP AL, KEY_HASH
+    JE PIN_TIMEOUT_CONFIRM
+    CMP AL, KEY_STAR
+    JE PIN_TIMEOUT_CLEAR
+    MOV BL, AL
+    CALL WAIT_KEY_RELEASE
+    MOV AL, BL
+    CALL KEY_TO_DIGIT
+    CMP AL, 0FFH
+    JE PIN_TIMEOUT_WAIT
+    XOR BX, BX
+    MOV BL, PIN_LENGTH
+    CMP BL, MIN_CODE_LEN
+    JAE PIN_TIMEOUT_WAIT
+    LEA SI, PIN_BUFFER
+    ADD SI, BX
+    MOV [SI], AL
+    INC PIN_LENGTH
+    CALL UPDATE_PIN_DISPLAY
+    JMP PIN_TIMEOUT_WAIT
+
+PIN_TIMEOUT_CLEAR:
+    CALL WAIT_KEY_RELEASE
+    CALL RESET_PIN_BUFFER
+    CALL UPDATE_PIN_DISPLAY
+    JMP PIN_TIMEOUT_WAIT
+
+PIN_TIMEOUT_CONFIRM:
+    CALL WAIT_KEY_RELEASE
+    MOV BL, PIN_LENGTH
+    CMP BL, MIN_CODE_LEN
+    JB PIN_TIMEOUT_WAIT
+    MOV AL, 1
+    RET
+PIN_INPUT_LOOP_TIMEOUT ENDP
+
 RESET_PIN_BUFFER PROC
     MOV BYTE PTR PIN_LENGTH, 0
     LEA DI, PIN_BUFFER
@@ -360,13 +478,10 @@ UPDATE_PIN_DISPLAY PROC
     PUSH CX
     PUSH SI
     PUSH DI
-    ; Clear the visible PIN area to underscores
     LEA DI, PIN_INPUT_LINE + 5
     MOV CX, MIN_CODE_LEN
     MOV AL, '_'
     REP STOSB
-
-    ; Overwrite the first PIN_LENGTH positions with '*'
     XOR BX, BX
     MOV BL, PIN_LENGTH
     MOV CX, BX
@@ -374,13 +489,10 @@ UPDATE_PIN_DISPLAY PROC
     LEA DI, PIN_INPUT_LINE + 5
     MOV AL, '*'
     REP STOSB
-
 PIN_DISPLAY_WRITE:
-    ; Push masked buffer to LCD
     MOV AL, LCD_LINE2
     LEA SI, PIN_INPUT_LINE
     CALL PRINT_AT
-
     POP DI
     POP SI
     POP CX
@@ -425,6 +537,18 @@ BEGIN_SESSION PROC
     RET
 BEGIN_SESSION ENDP
 
+SHOW_SESSION_SCREEN PROC
+    CALL CLEAR_LCD
+    MOV AL, LCD_LINE1
+    LEA SI, LOCK_LINE
+    CALL PRINT_AT
+    MOV AL, LCD_LINE2
+    LEA SI, EXIT_PROMPT
+    CALL PRINT_AT
+    CALL UPDATE_SESSION_DISPLAY
+    RET
+SHOW_SESSION_SCREEN ENDP
+
 RUN_SESSION PROC
 SESSION_LOOP:
     CALL UPDATE_TIMER_METRICS
@@ -438,8 +562,23 @@ SESSION_DONE:
 RUN_SESSION ENDP
 
 HANDLE_DISARM_SEQUENCE PROC
+DISARM_STAGE:
     CALL PROMPT_FOR_DISARM_CODE
+    CMP AL, 1
+    JE PAYMENT_STAGE
+    CALL SHOW_SESSION_SCREEN
+    CALL RUN_SESSION
+    JMP DISARM_STAGE
+PAYMENT_STAGE:
+PAYMENT_RETRY:
     CALL WAIT_FOR_PAYMENT
+    CMP AL, 1
+    JE COMPLETE_STAGE
+    CALL SHOW_SESSION_SCREEN
+    CALL RUN_SESSION
+    JMP PAYMENT_RETRY
+COMPLETE_STAGE:
+    CALL SHOW_CHANGE_MESSAGE
     CALL COMPLETE_UNLOCK
     RET
 HANDLE_DISARM_SEQUENCE ENDP
@@ -450,7 +589,7 @@ UPDATE_TIMER_METRICS PROC
     PUSH CX
     PUSH DX
     PUSH SI
-    MOV CX, ONE_SECOND_MS    ; Previously 1000 -> too slow
+    MOV CX, 10
     CALL DELAY_MS
     INC SECONDS_COUNTER
     CALL APPLY_MINUTE_RATES
@@ -551,19 +690,27 @@ REFRESH_TIME_AND_PAYMENT_STRINGS PROC
     PUSH DI
     MOV AX, SECONDS_COUNTER
     XOR DX, DX
-    MOV BX, 60
+    MOV BX, 3600
     DIV BX
     MOV SI, AX
     MOV BX, DX
     MOV AX, SI
     CMP AX, 99
-    JBE MINUTES_OK
+    JBE HOURS_OK
     MOV AX, 99
-MINUTES_OK:
+HOURS_OK:
     LEA DI, TIME_LINE + 6
     CALL WRITE_DEC2
     MOV AX, BX
+    XOR DX, DX
+    MOV CX, 60
+    DIV CX
+    MOV SI, AX
+    MOV BX, DX
     LEA DI, TIME_LINE + 9
+    CALL WRITE_DEC2
+    MOV AX, BX
+    LEA DI, TIME_LINE + 12
     CALL WRITE_DEC2
     MOV AX, COST_ACCUM
     LEA DI, PAY_LINE + 5
@@ -640,17 +787,75 @@ WAIT_FOR_PAYMENT PROC
     MOV AL, LCD_LINE1
     LEA SI, PAY_HEADER
     CALL PRINT_AT
+    MOV AX, PAID_TOTAL
+    MOV LAST_PAYMENT_TOTAL, AX
+    MOV BX, PAYMENT_IDLE_TIMEOUT_MS
 PAYMENT_LOOP:
     CALL UPDATE_PAYMENT_PROMPTS
     MOV AX, PAID_TOTAL
     CMP AX, COST_ACCUM
     JAE PAYMENT_DONE
+    CMP AX, LAST_PAYMENT_TOTAL
+    JNE PAYMENT_RESET_IDLE
+    CMP BX, 50
+    JBE PAYMENT_TIMEOUT
+    SUB BX, 50
+    JMP PAYMENT_DELAY
+PAYMENT_RESET_IDLE:
+    MOV LAST_PAYMENT_TOTAL, AX
+    MOV BX, PAYMENT_IDLE_TIMEOUT_MS
+PAYMENT_DELAY:
     MOV CX, 50
     CALL DELAY_MS
     JMP PAYMENT_LOOP
 PAYMENT_DONE:
+    MOV AL, 1
+    RET
+PAYMENT_TIMEOUT:
+    XOR AL, AL
     RET
 WAIT_FOR_PAYMENT ENDP
+
+SHOW_CHANGE_MESSAGE PROC
+    PUSH AX
+    PUSH CX
+    PUSH SI
+    PUSH DI
+    MOV AX, PAID_TOTAL
+    SUB AX, COST_ACCUM
+    JLE SCM_DONE                 ; No change due
+    LEA DI, CHANGE_LINE + 7
+    CALL WRITE_DEC4
+    CALL CLEAR_LCD
+    ; Line 1: status
+    MOV AL, LCD_LINE1
+    LEA SI, DISPENSING_MSG
+    CALL PRINT_AT
+    ; Line 2: change value
+    MOV AL, LCD_LINE2
+    LEA SI, CHANGE_LINE
+    CALL PRINT_AT
+    ; Line 4: prompt to continue
+    MOV AL, LCD_LINE4
+    LEA SI, PRESS_HASH_PROMPT
+    CALL PRINT_AT
+
+WAIT_HASH_LOOP:
+    CALL WAIT_FOR_KEY
+    CMP AL, KEY_HASH
+    JE HASH_ACCEPT
+    CALL WAIT_KEY_RELEASE
+    JMP WAIT_HASH_LOOP
+HASH_ACCEPT:
+    CALL WAIT_KEY_RELEASE
+
+SCM_DONE:
+    POP DI
+    POP SI
+    POP CX
+    POP AX
+    RET
+SHOW_CHANGE_MESSAGE ENDP
 
 UPDATE_PAYMENT_PROMPTS PROC
     PUSH AX
@@ -730,6 +935,12 @@ SET_LOCK_STATE PROC
     MOV DX, PORTB_2
     MOV AL, SERVO_LOCK_MASK
     OUT DX, AL
+    
+    MOV DX, PORTC_2
+    MOV AL, 1001B
+    OUT DX, AL
+    
+    
     POP DX
     POP AX
     RET
@@ -744,10 +955,51 @@ SET_UNLOCK_STATE PROC
     MOV DX, PORTB_2
     MOV AL, SERVO_UNLOCK_MASK
     OUT DX, AL
+    
+    MOV DX, PORTC_2
+    MOV AL, 1100B
+    OUT DX, AL
+    
     POP DX
     POP AX
     RET
 SET_UNLOCK_STATE ENDP
+
+INIT_PIC PROC
+    PUSH AX
+    PUSH DX
+    MOV DX, PIC1
+    MOV AL, ICW1
+    OUT DX, AL
+    MOV DX, PIC2
+    MOV AL, ICW2
+    OUT DX, AL
+    MOV AL, ICW4
+    OUT DX, AL
+    MOV AL, OCW1_MASK
+    MOV PIC_MASK, AL
+    OUT DX, AL
+    POP DX
+    POP AX
+    RET
+INIT_PIC ENDP
+
+INIT_PIT PROC
+    PUSH AX
+    PUSH DX
+    MOV DX, PIT_CTRL
+    MOV AL, PIT_CTRL_WORD
+    OUT DX, AL
+    MOV DX, PIT_CH0
+    MOV AX, PIT_COUNT_VALUE
+    OUT DX, AL
+    
+    MOV AL, 00H
+    OUT DX, AL
+    POP DX
+    POP AX
+    RET
+INIT_PIT ENDP
 
 ;-------------------------------------------------------------
 ; Hardware interface helpers
@@ -799,6 +1051,30 @@ WAIT_KEY_LOOP:
 WAIT_KEY_READY:
     RET
 WAIT_FOR_KEY ENDP
+
+WAIT_FOR_KEY_TIMEOUT PROC
+    ; Expects CX = timeout in milliseconds (0 disables timeout)
+    PUSH BX
+    CMP CX, 0
+    JE WKT_INFINITE
+WKT_LOOP:
+    CALL SCAN_KEY
+    JC WKT_READY
+    CALL DELAY_1MS
+    LOOP WKT_LOOP
+    POP BX
+    CLC
+    RET
+WKT_INFINITE:
+    CALL WAIT_FOR_KEY
+    POP BX
+    STC
+    RET
+WKT_READY:
+    POP BX
+    STC
+    RET
+WAIT_FOR_KEY_TIMEOUT ENDP
 
 WAIT_KEY_RELEASE PROC
 WAIT_RELEASE_LOOP:
@@ -913,7 +1189,7 @@ INIT_LCD ENDP
 
 DELAY_1MS PROC
     PUSH BX
-    MOV BX, 0100H            ; Reduced inner loop to speed up (was 02CAH)
+    MOV BX, 001AH    ;02CAH = irl 1 second (lower = faster)
 L1:
     DEC BX
     NOP
