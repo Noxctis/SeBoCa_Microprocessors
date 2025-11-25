@@ -50,8 +50,8 @@ DATA SEGMENT
     POWER_OFF_HOLD_TICKS EQU 50   ; adjust to match actual 5 s 
     MESSAGE_PAUSE_MS     EQU 1500   ; generic pause after messages (approx ms)
     FLASH_HALF_MS        EQU 50    ; blink half-period (approx ms)
-    DISARM_IDLE_TIMEOUT_MS  EQU 6000 ; inactivity limit (ms) for disarm prompt
-    PAYMENT_IDLE_TIMEOUT_MS EQU 6000 ; inactivity limit (ms) for payment prompt
+    DISARM_IDLE_TIMEOUT_MS  EQU 4000 ; inactivity limit (ms) for disarm prompt
+    PAYMENT_IDLE_TIMEOUT_MS EQU 4000 ; inactivity limit (ms) for payment prompt
 
     ; Mapping tables for keypad conversions
     KEY_NUM_TABLE   DB 1,2,3,0FFH,4,5,6,0FFH,7,8,9,0FFH,0FFH,0,0FFH,0FFH
@@ -116,8 +116,8 @@ DATA SEGMENT
     PIT_COUNT_VALUE EQU 01H   ; Lower value = faster timer ticks for testing
 
     PIN_PROMPT_LINE  DB 'Enter 4-digit PIN     ','$'
-    PIN_INPUT_LINE   DB 'PIN: ____             ','$'
-    DISARM_PROMPT    DB 'Re-enter PIN to unlock','$'
+    PIN_INPUT_LINE   DB 'PIN: ____           ','$'
+    DISARM_PROMPT    DB 'Enter PIN to unlock','$'
     LOCK_LINE        DB 'Locker Secured        ','$'
     EXIT_PROMPT      DB 'Press * to finish     ','$'
     TIME_LINE        DB 'Time: 00:00:00        ','$'
@@ -137,7 +137,7 @@ DATA SEGMENT
     LAST_MINUTE      DW 0
     LAST_PAYMENT_TOTAL DW 0
     COIN_PROMPT      DB 'Insert coins to pay   ','$'
-    DUE_LINE         DB 'Due:0000             ','$'
+    DUE_LINE         DB 'Due:0000           ','$'
     DEC_DIVISORS     DW 1000,100,10,1
 
 DATA ENDS
